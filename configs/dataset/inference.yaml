@@ -1,0 +1,5 @@
+data:
+  class_path: data_loader.inference_dataloader.InferenceDataModule
+  init_args:
+    speech_dir: './src/demos/'
+    batch_size: 1

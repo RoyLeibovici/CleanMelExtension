@@ -1,0 +1,67 @@
+seed_everything: 2
+
+trainer:
+  gradient_clip_val: 10
+  gradient_clip_algorithm: norm
+  devices: null
+  accelerator: gpu
+  strategy: ddp_find_unused_parameters_false
+  sync_batchnorm: false
+  precision: 32
+  num_sanity_val_steps: 3
+  deterministic: true
+  max_epochs: 100
+  log_every_n_steps: 40
+
+model:
+  arch:
+    class_path: model.arch.cleanmel.CleanMel
+    init_args:
+      dim_input: 2
+      dim_output: 1
+      n_layers: 16
+      dim_hidden: 96
+      layer_linear_freq: 1
+      f_kernel_size: 5
+      f_conv_groups: 8
+      n_freqs: 257
+      n_mels: 80
+      mamba_state: 16
+      mamba_conv_kernel: 4
+      online: true
+      sr: 16000
+      n_fft: 512
+  input_stft:
+    class_path: model.io.stft.InputSTFT
+    init_args:
+      n_fft: 512 
+      n_win: 512 
+      n_hop: 256
+      center: true 
+      normalize: false 
+      onesided: true 
+      online: true
+  target_stft:
+    class_path: model.io.stft.TargetMel
+    init_args:
+        sample_rate: 16000
+        n_fft: 512
+        n_win: 512
+        n_hop: 256
+        n_mels: 80
+        f_min: 0
+        f_max: 8000
+        power: 2
+        center: true
+        normalize: false
+        onesided: true
+        mel_norm: "slaney"
+        mel_scale: "slaney"
+        librosa_mel: true
+        online: true
+
+  optimizer: [AdamW, { lr: 0.001, weight_decay: 0.001}]
+  lr_scheduler: [ExponentialLR, { gamma: 0.99 }]
+  exp_name: exp
+  metrics: [DNSMOS]
+  log_eps: 1e-5
