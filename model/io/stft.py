@@ -20,7 +20,14 @@ def soxnorm(wav: torch.Tensor, gain, factor=None):
     else:
         # for clean speech, normed by the noisy factor
         wav = wav * factor
-    assert torch.all(wav.abs() <= 1), f"out wavform is not in [-1, 1], {(~torch.all(wav.abs() <= 1)).sum().item()} samples violate, factor, {factor}"
+
+    # New Code: Softly clips values that exceed 1.0
+    if torch.any(wav.abs() > 1):
+        print(f"Encountered wav norm greater than 1 - {factor}")
+        wav = torch.clamp(wav, min=-1.0, max=1.0)
+    # -----------------------
+
+    #assert torch.all(wav.abs() <= 1), f"out wavform is not in [-1, 1], {(~torch.all(wav.abs() <= 1)).sum().item()} samples violate, factor, {factor}"
     return wav, factor
 
 

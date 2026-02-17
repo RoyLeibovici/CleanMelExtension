@@ -276,6 +276,24 @@ class CleanMelDataModule(LightningDataModule):
             collate_fn=self.collate_func,
         )
 
+    def test_dataloader(self) -> DataLoader:
+        # STRICT MODE: Explicitly use the 3rd dataset (SimTest)
+        # This will crash with IndexError if 'datasets' only has 2 elements
+        dataset_name = self.datasets[2]
+
+        # Explicitly use the 3rd audio length
+        # This will crash with IndexError if 'audio_time_len' only has 2 elements
+        audio_len = self.audio_time_len[2]
+
+        return self.construct_dataloader(
+            dataset=dataset_name,
+            audio_time_len=audio_len,
+            seed=self.seeds[1],  # Use validation seed for consistency
+            shuffle=False,
+            batch_size=self.batch_size[1],  # Reuse validation batch size
+            collate_fn=self.collate_func,
+        )
+
 if __name__ == '__main__':
     """To simulate the data:
         python -m data_loader.SPencn_NSdns_RIRreal"""

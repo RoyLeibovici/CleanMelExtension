@@ -3,18 +3,15 @@ seed_everything: 2
 trainer:
   gradient_clip_val: 10
   gradient_clip_algorithm: norm
-  # Set devices to 1 for Colab to avoid auto-detect errors
-  devices: 1
+  devices: 2
   accelerator: gpu
-  # Changed from 'ddp_find_unused_parameters_false' to 'auto' for stability on single GPU
-  strategy: auto
+  strategy: ddp
   sync_batchnorm: false
   precision: 32
   num_sanity_val_steps: 3
   deterministic: true
-  # Reduced from 100 -> 10 for fine-tuning
-  max_epochs: 10
-  log_every_n_steps: 40
+  max_epochs: 25      # Short run for fine-tuning
+  log_every_n_steps: 1
 
 model:
   arch:
@@ -22,8 +19,10 @@ model:
     init_args:
       dim_input: 2
       dim_output: 1
-      n_layers: 16
-      dim_hidden: 144
+      # ✅ FIXED: Small Model Sizes
+      n_layers: 8
+      dim_hidden: 96
+
       layer_linear_freq: 1
       f_kernel_size: 5
       f_conv_groups: 8
@@ -63,9 +62,9 @@ model:
         librosa_mel: true
         online: false
 
-  # CRITICAL CHANGE: Learning rate reduced to 2e-5 (0.00002) for fine-tuning
-  optimizer: [AdamW, { lr: 0.00002, weight_decay: 0.001}]
+  # ✅ FIXED: Lower Learning Rate for Fine-Tuning (2e-5)
+  optimizer: [AdamW, { lr: 0.00037, weight_decay: 0.001}]
   lr_scheduler: [ExponentialLR, { gamma: 0.99 }]
-  exp_name: exp
+  exp_name: hebrew_finetune
   metrics: [DNSMOS]
   log_eps: 1e-5

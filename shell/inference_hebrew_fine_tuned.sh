@@ -7,11 +7,11 @@ output=$4
 huggingface_used=$5
 
 speech_folder="./dev_utils/test_sample/"
-output_folder="./my_output/"
+output_folder="./my_output/finetune_hebrew_sisnr/"
 
 # Sanity check + Configurations
 # output
-if [ $output != "mask" ] && [ $output != "map" ]; then
+if [ $output != "mask" ] && [ $output != "map" ] && [ $output != "sisnr" ]; then
     echo "Invalid output, must be 'mask' or 'map'"
     exit 1
 fi
@@ -41,7 +41,7 @@ if [[ $huggingface_used == "huggingface" ]]; then
     ckpt_path=HF!ckpts/CleanMel/${mode}_CleanMel_${size}_${output}.ckpt
 else
     vocos_ckpt=./pretrained/vocos/vocos_${mode}.pt
-    ckpt_path=./pretrained/enhancement/${mode}_CleanMel_${size}_${output}.ckpt
+    ckpt_path=./logs/finetune_hebrew_sisnr/version_0/checkpoints/last.ckpt
 fi
 python -m model.CleanMelTrainer_${output} predict \
     --config ./configs/model/cleanmel_${mode}.yaml \

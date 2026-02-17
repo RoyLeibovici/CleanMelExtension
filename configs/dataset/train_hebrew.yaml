@@ -1,27 +1,33 @@
 data:
-  class_path: data_loader.SPencn_NSdns_RIRreal.CleanMelDataModule
+  # Use the robust dataloader we decided on
+  class_path: data_loader.SPencn_NSdns_RIRreal_rts.CleanMelDataModule
   init_args:
-    # Pointing to your converted 16kHz Hebrew WAVs
-    speech_dir: /content/drive/MyDrive/Audio_Course_Final_Project/CleanMel/Hebrew_Dataset/he/clean_hebrew_16k/
+    # Relative paths to your local datasets
+    speech_dir: ./datasets/he/clean_hebrew_16k/
+    noise_dir: ./datasets/noise/
+    rir_dir: ./datasets/RIRS_NOISES/real_rirs_isotropic_noises/
 
-    # The HF Noise Path (from your code)
-    noise_dir: /content/drive/MyDrive/Audio_Course_Final_Project/CleanMel/datasets/noise/
-
-    # The OpenSLR RIR Path (from your code)
-    rir_dir: /content/drive/MyDrive/Audio_Course_Final_Project/CleanMel/RIRS_NOISES/real_rirs_isotropic_noises/
-
+    # Standard split names
     datasets: ['SimTrain', 'SimVal', 'SimTest', ['SimVal']]
-    audio_time_len: [4.0, 4.0, null]
+
+    # Audio length: 4s for training, full length (null) for validation
+    audio_time_len: [4.0, 4.0, 4.0]
+
+    # SNR range for mixing noise
     snr: [-5, 20]
-    batch_size: [2, 1]
 
-    # CRITICAL CHANGE: Adjusted to match your actual file count (~5500 files)
-    # [Train, Val, Test]
-    dataset_len: [5000, 200, 200]
+    # Batch Size: [Train, Val]
+    # We use 8 for training (faster) and 1 for val (safest for variable lengths)
+    batch_size: [4, 1]
 
-#model_checkpoint:
-#  save_top_k: -1
-#  monitor: "val_loss"
-#  mode: "min"
-#  dirpath: "checkpoints/hebrew_finetune"
-#  filename: "cleanmel-hebrew-{epoch:02d}-{val_loss:.2f}"
+    # Dataset Lengths: [Train, Val, Test]
+    dataset_len: [4392, 549, 550]
+    #dataset_len: [40, 10, 10]
+
+# Optional: Uncomment to customize checkpoint saving
+# model_checkpoint:
+#   save_top_k: 3
+#   monitor: "val_loss"
+#   mode: "min"
+#   dirpath: "checkpoints/hebrew_finetune"
+#   filename: "cleanmel-hebrew-{epoch:02d}-{val_loss:.2f}"

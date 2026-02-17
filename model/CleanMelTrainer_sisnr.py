@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class TrainModule(pl.LightningModule):
     name: str 
-    import_path: str = 'model.CleanMelTrainer_mask.TrainModule'
+    import_path: str = 'model.CleanMelTrainer_sisnr.TrainModule'
 
     def __init__(
         self,
@@ -152,7 +152,33 @@ class TrainModule(pl.LightningModule):
         Y_hat = Y_hat.squeeze()
         Y_hat = torch.square(Y_hat * (torch.sqrt(X_noisy) + 1e-10))
         return Y_hat
-    
+
+    def si_snr_loss(self, preds, targets):
+        """
+        Calculates Scale-Invariant Signal-to-Noise Ratio (SI-SNR) loss.
+        We return negative SI-SNR because we want to Minimize loss (Maximize SNR).
+        """
+        # Zero-mean normalization
+        preds_mean = preds - torch.mean(preds, dim=-1, keepdim=True)
+        targets_mean = targets - torch.mean(targets, dim=-1, keepdim=True)
+
+        # Dot product
+        pair_wise_dot = torch.sum(preds_mean * targets_mean, dim=-1, keepdim=True)
+        target_energy = torch.sum(targets_mean ** 2, dim=-1, keepdim=True)
+
+        # Project
+        projected = pair_wise_dot * targets_mean / (target_energy + 1e-8)
+
+        # Noise component
+        noise = preds_mean - projected
+
+        # SNR calculation
+        ratio = torch.sum(projected ** 2, dim=-1) / (torch.sum(noise ** 2, dim=-1) + 1e-8)
+        si_snr = 10 * torch.log10(ratio + 1e-8)
+
+        # Return negative mean (Minimize this to Maximize SNR)
+        return -torch.mean(si_snr)
+
     def forward(self, x: Tensor, y: Tensor, inference=False):
         # STFT for noisy and clean waveform + normalization
         X, X_norm = self.input_stft(x)
@@ -173,27 +199,71 @@ class TrainModule(pl.LightningModule):
         """training step on self.device, called automaticly by PytorchLightning"""
         x, ys, paras = batch  # x: [B,T], ys: [B,T]
         # Model forward
-        MRM_hat, MRM_target, Y_hat, Y, _ = self.forward(x, ys)
+        MRM_hat, MRM_target, Y_hat, Y, X_norm = self.forward(x, ys)
         mrm_loss = F.mse_loss(MRM_hat, MRM_target)
         logmel_mse = F.mse_loss(Y_hat, Y)
         logmel_l1 = F.l1_loss(Y_hat, Y)
-        self.log('train/mrm_loss', mrm_loss, batch_size=ys[0].shape[0], sync_dist=True, prog_bar=False)
-        self.log('train/logmel_mse', logmel_mse, batch_size=ys[0].shape[0], sync_dist=True, prog_bar=False)
-        self.log('train/logmel_L1', logmel_l1, batch_size=ys[0].shape[0], sync_dist=True, prog_bar=False)
-        return mrm_loss
+
+        # 3. NEW: Time-Domain Loss (SI-SNR)
+        # We must decode Mel -> Audio first using Vocos
+        # Clamp to avoid numerical instability before vocoder
+        Y_hat_clamped = Y_hat.clamp(min=math.log(self.log_eps))
+        # Generate waveform estimate
+        y_hat = self.vocos(Y_hat_clamped, X_norm).clamp(min=-1, max=1)
+
+        # Match lengths (Vocoder output might slightly differ due to padding)
+        min_len = min(y_hat.shape[-1], ys.shape[-1])
+        y_hat = y_hat[..., :min_len]
+        ys_cropped = ys[..., :min_len]
+
+        # Calculate SI-SNR Loss
+        si_snr = self.si_snr_loss(y_hat, ys_cropped)
+
+        # 4. Total Loss Combination
+        # Weighting: 1.0 * Spectral + 0.1 * SI-SNR (Adjust 0.1 as needed)
+        total_loss = mrm_loss + (0.1 * si_snr)
+
+        # 5. Logging
+        batch_size = ys[0].shape[0]
+        self.log('train/mrm_loss', mrm_loss, batch_size=batch_size, sync_dist=True, prog_bar=False)
+        self.log('train/logmel_mse', logmel_mse, batch_size=batch_size, sync_dist=True, prog_bar=False)
+        self.log('train/si_snr', -si_snr, batch_size=batch_size, sync_dist=True,
+                 prog_bar=True)  # Log positive SNR for readability
+        self.log('train/total_loss', total_loss, batch_size=batch_size, sync_dist=True, prog_bar=True)
+
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
         """validation step on self.device, called automaticly by PytorchLightning"""
         x, ys, paras = batch
-        # forward & loss
-        MRM_hat, MRM_target, Y_hat, Y, _ = self.forward(x, ys)
+
+        # 1. Forward
+        MRM_hat, MRM_target, Y_hat, Y, X_norm = self.forward(x, ys)
+
+        # 2. Spectral Losses
         mrm_loss = F.mse_loss(MRM_hat, MRM_target)
         logmel_mse = F.mse_loss(Y_hat, Y)
-        logmel_l1 = F.l1_loss(Y_hat, Y)
-        self.log('val/mrm_loss', mrm_loss, batch_size=ys[0].shape[0], sync_dist=True, prog_bar=False)
-        self.log('val/logmel_mse', logmel_mse, batch_size=ys[0].shape[0], prog_bar=False)
-        self.log('val/logmel_L1', logmel_l1, batch_size=ys[0].shape[0], prog_bar=False)
-        self.log('val/metric', -mrm_loss, batch_size=ys.shape[0])  # log val/metric for checkpoint picking 
+
+        # 3. NEW: SI-SNR Calculation
+        Y_hat_clamped = Y_hat.clamp(min=math.log(self.log_eps))
+        y_hat = self.vocos(Y_hat_clamped, X_norm).clamp(min=-1, max=1)
+
+        min_len = min(y_hat.shape[-1], ys.shape[-1])
+        y_hat = y_hat[..., :min_len]
+        ys_cropped = ys[..., :min_len]
+
+        si_snr = self.si_snr_loss(y_hat, ys_cropped)
+
+        # 4. Logging
+        batch_size = ys[0].shape[0]
+        self.log('val/mrm_loss', mrm_loss, batch_size=batch_size, sync_dist=True, prog_bar=False)
+        self.log('val/logmel_mse', logmel_mse, batch_size=batch_size, prog_bar=False)
+        self.log('val/si_snr', -si_snr, batch_size=batch_size, prog_bar=True)  # Log positive SNR
+
+        # 5. Checkpoint Metric
+        # Using SI-SNR for checkpointing is often better than MSE
+        # Or keep using mrm_loss if you prefer spectral fidelity
+        self.log('val/metric', -si_snr, batch_size=batch_size)
             
     def on_validation_epoch_end(self) -> None:
         """calculate heavy metrics for every N epochs"""
@@ -245,19 +315,21 @@ class TrainModule(pl.LightningModule):
         y_hat = self.vocos(Y_hat, X_norm).clamp(min=-1, max=1)
         clip_length = min(y_hat.shape[-1], ys.shape[-1])
         y_hat = y_hat[..., :clip_length]
-        #y_rconst = y_rconst[..., :clip_length]
+        # y_rconst = y_rconst[..., :clip_length]
         ys = ys[..., :clip_length]
         x = x[..., :clip_length]
         wavname = os.path.basename(paras[0]['saveto'])
         result_dict = {
-            'id': batch_idx, 
-            'wavname': wavname, 
-            "LogMel_MSE": logmel_mse.item(), 
-            "LogMel_L1": logmel_l1.item(), 
+            'id': batch_idx,
+            'wavname': wavname,
+            "LogMel_MSE": logmel_mse.item(),
+            "LogMel_L1": logmel_l1.item(),
             "MRM_MSE": mrm_loss.item()
-            }
+        }
 
         # calculate metrics, input_metrics, improve_metrics on GPU
+        si_snr_val = -self.si_snr_loss(y_hat, ys)  # Convert back to positive SNR
+        result_dict["SI_SNR"] = si_snr_val.item()
         metrics, input_metrics, imp_metrics = cal_metrics_functional(
             self.metrics, y_hat[0], ys[0], x[0], sample_rate, device_only='gpu')
         result_dict.update(input_metrics)
@@ -269,9 +341,9 @@ class TrainModule(pl.LightningModule):
         if self.write_examples < 0 or int(paras[0]['index']) < self.write_examples:
             GS.test_setp_write_example(
                 self=self,
-                xr=x/x.abs().max(),
-                yr=ys.unsqueeze(1)/ys.abs().max(),
-                yr_hat=y_hat.unsqueeze(1)/y_hat.abs().max(),
+                xr=x / x.abs().max(),
+                yr=ys.unsqueeze(1) / ys.abs().max(),
+                yr_hat=y_hat.unsqueeze(1) / y_hat.abs().max(),
                 sample_rate=sample_rate,
                 paras=paras,
                 result_dict=result_dict,
@@ -287,7 +359,7 @@ class TrainModule(pl.LightningModule):
         result_dict['paras'] = paras[0]
         self.results.append(result_dict)
         return result_dict
-    
+
     def configure_optimizers(self):
         """configure optimizer and lr_scheduler"""
         return GS.configure_optimizers(
