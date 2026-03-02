@@ -7,6 +7,8 @@
 
 PyTorch implementation of "CleanMel: Mel-Spectrogram Enhancement for Improving Both Speech Quality and ASR" [accepted by IEEE Trans. ASLPRO (TASLP), 2025].
 
+## For our extension of CleanMel over Hebrew Datasets and SI-SNR metric, scroll to the bottom of the ReadMe file.
+
 ## Notice 📢
 - The CleanMel model checkpoints are now available on huggingface, the inference can be done using one-line commands.
 - All models are available in `pretrained/enhancement/` folder.
@@ -112,3 +114,33 @@ pretrained/
 ## Acknowledgement 🙏
 - Built using [NBSS](https://github.com/Audio-WestlakeU/NBSS) template
 - Vocoder implementation from [Vocos](https://github.com/gemelo-ai/vocos)
+
+
+
+## CleanMel Extension - Our addition of Hebrew Fine Tuning and SI-SNR loss
+1. The datasets used for Hebrew Fine tuning are - Hebrew (Common Voice Scripted Speech 24.0 - Hebrew)
+2. Noising Datasets used are - Noise Dataset (DNS challenge)
+3. RIR Dataset (openslr)
+   
+**To obtain the datasets run the following py files under setup dir:**
+1. get_Hebrew_dataset.py
+2. get_noise_dataset.py
+3. get_rir_dataset.py
+4. get_rir_csvs.py
+5. preprocess_Hebrew_audio.py
+6. reconfigure_datasets.py
+
+To fine tune the model run either:
+fine_tune_hebrew_mask.py or fine_tune_hebrew_sisnr.py
+under the src dir. 
+Note that the yaml configuration file points to the correct location of the datasets.
+
+To test the fine tuned models run either:
+test_model_fine_tuned_hebrew_mask.py or test_model_fine_tuned_hebrew_sisnr.py
+
+Ensure first that the arch checkpoints exist under:
+"./logs/finetune_hebrew_mask/version_0/checkpoints/last.ckpt"
+"./logs/finetune_hebrew_sisnr/version_0/checkpoints/last.ckpt"
+
+Finally, run the show_mel.py file, under src to compare the mel spectogram of the signal before and after fine tuning the model.
+
