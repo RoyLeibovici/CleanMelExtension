@@ -144,3 +144,4 @@ Ensure first that the arch checkpoints exist under:
 
 Finally, run the show_mel.py file, under src to compare the mel spectogram of the signal before and after fine tuning the model.
 
+Checkpoints for the Hebrew Fine Tuned model will be uploaded to GitHub soon.
